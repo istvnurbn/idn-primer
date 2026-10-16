@@ -14,6 +14,9 @@
     efi.canTouchEfiVariables = true;
   };
 
+  # Enables non-free firmware on devices not recognized by `nixos-generate-config`.
+  hardware.enableRedistributableFirmware = lib.mkDefault true;
+
   networking.hostName = lib.mkDefault (throw "set networking.hostName for this host in flake.nix");
 
   nix.settings = {
