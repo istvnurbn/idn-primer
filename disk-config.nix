@@ -8,6 +8,7 @@
 
   # Do you want to live the impermanent life?
   # Only adds /persist (neededForBoot); resetting root on boot is left to iDN.
+  # Must be true exactly when the iDN host includes the `impermanence` aspect.
   impermanence = false;
 in {
   disko.devices = {
@@ -62,12 +63,7 @@ in {
                     "noatime"
                   ];
                 };
-                # If you hibernate, add two bits manually after install:
-                #
-                # boot.resumeDevice = "/dev/disk/by-partlabel/disk-main-root";
-                # boot.kernelParams = [ "resume_offset=<N>" ];
-                #
-                # <N> comes from
+                # To hibernate, set iDN's resumeOffset setting after install to
                 # sudo btrfs inspect-internal map-swapfile -r /swap/swapfile
                 "/swap" = {
                   mountpoint = "/swap";

@@ -14,7 +14,7 @@
 This is a template repository for initiating a NixOS installation on a new system, based on [nixos-anywhere-examples](https://github.com/nix-community/nixos-anywhere-examples). It installs a minimal NixOS system which is then set up by my main repo, [iDN](https://github.com/istvnurbn/idn).
 
 > [!NOTE]
-> For now, only UEFI machines are supported. The configurations use systemd-boot, which is incompatible with legacy BIOS. To check a target before installing, run `[ -d /sys/firmware/efi ] && echo UEFI || echo BIOS` on it.
+> For now, only UEFI machines with Secure Boot off are supported. The configurations use unsigned systemd-boot, which is incompatible with legacy BIOS. To check a target before installing, run `[ -d /sys/firmware/efi ] && echo UEFI || echo BIOS` on it.
 
 ## Requirements
 
@@ -44,19 +44,20 @@ See [nixos-anywhere's requirements](https://github.com/nix-community/nixos-anywh
 - **Boot loader:** systemd-boot
 - **Access:** `steve` over SSH, using the keys in [`access.nix`](access.nix), with passwordless sudo for the `wheel` group. Root can't log in over SSH, and SSH password login is off, so keys are the only way in.
 - **Nix:** flakes enabled, plus curl, git, and msedit.
+- **Firmware:** redistributable firmware, on `generic` only.
 
 iDN takes over the machine afterwards, so its host configuration has to mount this same layout. Change [`disk-config.nix`](disk-config.nix) and iDN together.
 
 ## Usage
 
 > [!WARNING]
-> Installing wipes the target disk completely: disko repartitions and formats all of it. The Hetzner configurations always wipe `/dev/sda`.
+> Installing wipes the target disk completely: disko repartitions and formats all of it. The Hetzner configurations always wipe `/dev/sda`, so detach any Volumes first.
 
 ### Before you run
 
 1. Replace [`access.nix`](access.nix) with your own user and SSH keys. It's the only personal file here, and it's mine, so leaving it locks you out and lets me in.
-2. In [`flake.nix`](flake.nix), replace your configuration's `# per machine:` comments with the target's hostname and, for `generic`, its disk. List the disks with `ls -l /dev/disk/by-id` on the target. The build fails until these are set.
-3. Review `swapSize` (at least your RAM if you hibernate) and `impermanence` in [`disk-config.nix`](disk-config.nix).
+2. In [`flake.nix`](flake.nix), replace your configuration's `# per machine:` comments with the target's hostname (its host name in iDN) and, for `generic`, its disk. List the disks with `ls -l /dev/disk/by-id` on the target. The build fails until these are set. On Hetzner, also fill in the IPv6 line: an IPv6-only server is unreachable without it.
+3. Review `swapSize` (at least your RAM if you hibernate) and `impermanence` in [`disk-config.nix`](disk-config.nix). Turn `impermanence` on exactly when the iDN host includes the `impermanence` aspect.
 
 ### Install
 
@@ -79,7 +80,25 @@ nix run github:nix-community/nixos-anywhere -- --generate-hardware-config nixos-
 
 The installed system has new SSH host keys, so your next `ssh` stops with a "REMOTE HOST IDENTIFICATION HAS CHANGED" warning. Remove the old key with `ssh-keygen -R <ip address>`, or add `--copy-host-keys` to the install command to keep the keys the target had before.
 
-Then set the machine up with [iDN](https://github.com/istvnurbn/idn).
+Then hand the machine over to [iDN](https://github.com/istvnurbn/idn). Its host needs this install's hostname, disk, `swapSize` and `impermanence` choice and, on `generic`, the contents of the generated `hardware-configuration.nix` (afterwards, restore the placeholder here with `git restore hardware-configuration.nix`). On the target, as `steve`:
+
+```sh
+git clone https://github.com/istvnurbn/idn ~/idn
+nixos-rebuild boot --flake ~/idn#<hostname> --sudo
+```
+
+With `impermanence` on, copy what iDN keeps in `/persist` before rebooting, or the first boot comes up with new SSH host keys, a new machine ID and no `~/idn`:
+
+```sh
+sudo mkdir -p /persist/etc/ssh /persist/var/lib /persist/home
+sudo cp -a /etc/ssh/ssh_host_* /persist/etc/ssh/
+sudo cp -a /etc/machine-id /persist/etc/
+sudo cp -a /var/lib/nixos /persist/var/lib/
+sudo install -d -o "$USER" -g "$(id -gn)" -m 700 "/persist$HOME"
+cp -a ~/idn "/persist$HOME/"
+```
+
+Then `sudo reboot`. Use `boot`, not `switch`, for this first apply: the network stack and, with impermanence, the mounts change, and those only apply cleanly on a fresh boot.
 
 ## AI Notice
 

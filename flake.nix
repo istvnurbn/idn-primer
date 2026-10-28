@@ -17,6 +17,8 @@
         "${nixpkgs}/nixos/modules/profiles/qemu-guest.nix"
         {disko.devices.disk.main.device = "/dev/sda";}
         # per machine: {networking.hostName = "<name>";}
+        # per machine, for IPv6 (required on IPv6-only servers; Hetzner assigns it statically):
+        # {networking.useNetworkd = true; systemd.network.networks."10-uplink" = {matchConfig.Name = "en*"; networkConfig.DHCP = "ipv4"; address = ["<prefix>::1/64"]; routes = [{Gateway = "fe80::1";}];};}
       ];
     };
 
@@ -29,6 +31,8 @@
         "${nixpkgs}/nixos/modules/profiles/qemu-guest.nix"
         {disko.devices.disk.main.device = "/dev/sda";}
         # per machine: {networking.hostName = "<name>";}
+        # per machine, for IPv6 (required on IPv6-only servers; Hetzner assigns it statically):
+        # {networking.useNetworkd = true; systemd.network.networks."10-uplink" = {matchConfig.Name = "en*"; networkConfig.DHCP = "ipv4"; address = ["<prefix>::1/64"]; routes = [{Gateway = "fe80::1";}];};}
       ];
     };
 
@@ -38,6 +42,8 @@
         disko.nixosModules.disko
         ./configuration.nix
         ./hardware-configuration.nix
+        # Non-free firmware for devices nixos-generate-config doesn't recognize
+        {hardware.enableRedistributableFirmware = nixpkgs.lib.mkDefault true;}
         # per machine: {disko.devices.disk.main.device = "/dev/disk/by-id/<id>";}
         # per machine: {networking.hostName = "<name>";}
       ];
