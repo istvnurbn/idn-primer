@@ -10,6 +10,32 @@
   # Only adds /persist (neededForBoot); resetting root on boot is left to iDN.
   # Must be true exactly when the iDN host includes the `impermanence` aspect.
   impermanence = false;
+
+  # Encrypt the root with LUKS2? Desktops only: servers stay unencrypted.
+  # Must be true exactly when the iDN host includes the `luks` aspect.
+  # Give nixos-anywhere the passphrase with
+  #   --disk-encryption-keys /tmp/secret.key <local file holding it>
+  # Every boot asks for it on the console until iDN sets up the TPM.
+  luks = false;
+
+  # Also format a second disk, like iDN's disko-btrfs-data? Set its device in
+  # flake.nix. With luks on, it gets the same passphrase; iDN opens it with a
+  # keyfile instead, which the README's handoff step adds. It stays unmounted
+  # until iDN takes over.
+  data = false;
+
+  maybeLuks = content:
+    if luks
+    then {
+      type = "luks";
+      # Opens as /dev/mapper/crypted, like in iDN
+      name = "crypted";
+      # Only read while formatting
+      passwordFile = "/tmp/secret.key";
+      settings.allowDiscards = true;
+      inherit content;
+    }
+    else content;
 in {
   disko.devices = {
     disk.main = {
@@ -33,7 +59,7 @@ in {
           root = {
             priority = 2;
             size = "100%";
-            content = {
+            content = maybeLuks {
               type = "btrfs";
               # force-overwrite any existing fs and setting nixos as label
               extraArgs = [
@@ -73,6 +99,39 @@ in {
             };
           };
         };
+      };
+    };
+  };
+
+  disko.devices.disk.data = lib.mkIf data {
+    device = lib.mkDefault (throw "set disko.devices.disk.data.device for this host in flake.nix (a /dev/disk/by-id path)");
+    type = "disk";
+    content = {
+      type = "gpt";
+      partitions.data = {
+        size = "100%";
+        content = let
+          btrfs = {
+            type = "btrfs";
+            extraArgs = [
+              "-L"
+              "data"
+              "-f"
+            ];
+          };
+        in
+          if luks
+          then {
+            type = "luks";
+            # Opens as /dev/mapper/data, like in iDN
+            name = "data";
+            # Only read while formatting
+            passwordFile = "/tmp/secret.key";
+            # iDN opens it after root, not in the initrd
+            initrdUnlock = false;
+            content = btrfs;
+          }
+          else btrfs;
       };
     };
   };
