@@ -16,6 +16,10 @@
 
   networking.hostName = lib.mkDefault (throw "set networking.hostName for this host in flake.nix");
 
+  # Hungarian keyboard on the console and the initrd's passphrase prompt.
+  # Keep equal to iDN's (modules/dendritic.nix).
+  console.keyMap = "hu";
+
   nix.settings = {
     # Enable the Flakes feature and the accompanying new nix command-line tool
     experimental-features = [
