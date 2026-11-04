@@ -45,6 +45,7 @@
         # Non-free firmware for devices nixos-generate-config doesn't recognize
         {hardware.enableRedistributableFirmware = nixpkgs.lib.mkDefault true;}
         # per machine: {disko.devices.disk.main.device = "/dev/disk/by-id/<id>";}
+        # per machine, with data = true: {disko.devices.disk.data.device = "/dev/disk/by-id/<id>";}
         # per machine: {networking.hostName = "<name>";}
       ];
     };

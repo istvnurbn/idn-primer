@@ -36,12 +36,14 @@ See [nixos-anywhere's requirements](https://github.com/nix-community/nixos-anywh
 
 ## What gets installed
 
-- **Disk:** GPT, with a 1G EFI system partition at `/boot` and a btrfs root (label `nixos`, zstd compression) on the rest. The root has these subvolumes:
+- **Disk:** GPT, with a 1G EFI system partition at `/boot` and a btrfs root (label `nixos`, zstd compression) on the rest, optionally inside LUKS2 (`luks`, desktops only, opened as `/dev/mapper/crypted`). The root has these subvolumes:
   - `/root`, mounted at `/`
   - `/nix`
   - `/swap`, holding the swapfile
   - `/persist`, only when `impermanence` is on. It only creates the subvolume; resetting root on boot is left to iDN.
+- **Data disk:** only when `data` is on. GPT with one btrfs partition (label `data`), inside LUKS2 with the same passphrase when `luks` is on. It stays unmounted until iDN takes over.
 - **Boot loader:** systemd-boot
+- **Console:** Hungarian keymap, also at the disk passphrase prompt.
 - **Access:** `steve` over SSH, using the keys in [`access.nix`](access.nix), with passwordless sudo for the `wheel` group. Root can't log in over SSH, and SSH password login is off, so keys are the only way in.
 - **Nix:** flakes enabled, plus curl, git, and msedit.
 - **Firmware:** redistributable firmware, on `generic` only.
@@ -56,8 +58,8 @@ iDN takes over the machine afterwards, so its host configuration has to mount th
 ### Before you run
 
 1. Replace [`access.nix`](access.nix) with your own user and SSH keys. It's the only personal file here, and it's mine, so leaving it locks you out and lets me in.
-2. In [`flake.nix`](flake.nix), replace your configuration's `# per machine:` comments with the target's hostname (its host name in iDN) and, for `generic`, its disk. List the disks with `ls -l /dev/disk/by-id` on the target. The build fails until these are set. On Hetzner, also fill in the IPv6 line: an IPv6-only server is unreachable without it.
-3. Review `swapSize` (at least your RAM if you hibernate) and `impermanence` in [`disk-config.nix`](disk-config.nix). Turn `impermanence` on exactly when the iDN host includes the `impermanence` aspect.
+2. In [`flake.nix`](flake.nix), replace your configuration's `# per machine:` comments with the target's hostname (its host name in iDN) and, for `generic`, its disk (and its data disk, with `data` on). List the disks with `ls -l /dev/disk/by-id` on the target. The build fails until these are set. On Hetzner, also fill in the IPv6 line: an IPv6-only server is unreachable without it.
+3. Review `swapSize` (at least your RAM if you hibernate), `impermanence`, `luks` and `data` in [`disk-config.nix`](disk-config.nix). Turn `impermanence` and `luks` on exactly when the iDN host includes the aspect of the same name, and `data` when it includes `disko-btrfs-data`. `luks` is for desktops only; servers stay unencrypted.
 
 ### Install
 
@@ -76,11 +78,37 @@ On generic hardware, where you also need to generate the hardware configuration,
 nix run github:nix-community/nixos-anywhere -- --generate-hardware-config nixos-generate-config ./hardware-configuration.nix --flake .#generic --target-host root@<ip address>
 ```
 
+With `luks` on, also pass the passphrase. nixos-anywhere copies the file to the target, and disko only reads it while formatting:
+
+```
+--disk-encryption-keys /tmp/secret.key <local file holding the passphrase>
+```
+
+Every boot then asks for it on the console, until iDN sets up the TPM.
+
 ### After install
 
 The installed system has new SSH host keys, so your next `ssh` stops with a "REMOTE HOST IDENTIFICATION HAS CHANGED" warning. Remove the old key with `ssh-keygen -R <ip address>`, or add `--copy-host-keys` to the install command to keep the keys the target had before.
 
-Then hand the machine over to [iDN](https://github.com/istvnurbn/idn). Its host needs this install's hostname, disk, `swapSize` and `impermanence` choice and, on `generic`, the contents of the generated `hardware-configuration.nix` (afterwards, restore the placeholder here with `git restore hardware-configuration.nix`). On the target, as `steve`:
+Then hand the machine over to [iDN](https://github.com/istvnurbn/idn). Its host needs this install's hostname, disks, `swapSize`, `impermanence`, `luks` and `data` choices and, on `generic`, the contents of the generated `hardware-configuration.nix` (afterwards, restore the placeholder here with `git restore hardware-configuration.nix`). On the target, as `steve`:
+
+If the iDN host includes `luks-ssh-unlock` (the SSH fallback for encrypted desktops), first create the initrd's own host key: the rebuild copies it into the initrd, and fails without it. Without impermanence, use `/etc/secrets/initrd` instead:
+
+```sh
+sudo install -d -m 700 /persist/etc/secrets/initrd
+sudo ssh-keygen -t ed25519 -N "" -f /persist/etc/secrets/initrd/ssh_host_ed25519_key
+```
+
+With `luks` and `data` both on, give the data disk the keyfile iDN opens it with (it asks for the passphrase once). Without impermanence, use `/etc/secrets` instead:
+
+```sh
+sudo install -d -m 700 /persist/etc/secrets
+sudo dd if=/dev/urandom of=/persist/etc/secrets/data.key bs=64 count=1 status=none
+sudo chmod 400 /persist/etc/secrets/data.key
+sudo cryptsetup luksAddKey /dev/disk/by-partlabel/disk-data-data /persist/etc/secrets/data.key
+```
+
+Then clone iDN and apply it:
 
 ```sh
 git clone https://github.com/istvnurbn/idn ~/idn
