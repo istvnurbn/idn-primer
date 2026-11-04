@@ -153,7 +153,24 @@ The iDN host needs this install's hostname, disks, `swapSize` and switches and, 
 
 ### 6. Encrypted: Secure Boot and the TPM
 
-These are iDN's job, after the handoff: follow the steps at the top of its `modules/system/secure-boot.nix`. Until the TPM is enrolled, every boot asks for the passphrase on the console. With `luks-ssh-unlock`, you can also answer it from the LAN with `ssh -p 2222 root@<ip address>`.
+The iDN host's `secure-boot` aspect creates the Secure Boot keys on its first boot and stages them on the ESP. Until the TPM is enrolled, every boot asks for the passphrase on the console. With `luks-ssh-unlock`, you can also answer it from the LAN with `ssh -p 2222 root@<ip address>`.
+
+1. **Check the staged keys:** `sudo bootctl status` shows Secure Boot in Setup Mode or disabled, and `sudo ls /boot/loader/keys/auto` lists the keys.
+2. **Enroll them:** in the firmware, enable Secure Boot and reset it to Setup Mode (keep the dbx), then reboot. systemd-boot enrolls the keys and restarts. Afterwards, `sudo bootctl status` says `Secure Boot: enabled (user)`.
+3. **Seal the disk key to the TPM**, bound to the Secure Boot state (PCR 7) and an empty PCR 15:
+
+   ```sh
+   sudo systemd-cryptenroll /dev/disk/by-partlabel/disk-main-root \
+     --tpm2-device=auto \
+     --tpm2-pcrs=7+15:sha256=0000000000000000000000000000000000000000000000000000000000000000
+   ```
+
+   After a reboot there's no prompt, and `journalctl -b -u systemd-cryptsetup@crypted` shows the TPM unlock.
+
+4. **Optional, a PIN:** to type a short PIN at every boot, run step 3 again with `--wipe-slot=tpm2 --tpm2-with-pin=yes` added.
+5. **A recovery key:** `sudo systemd-cryptenroll --recovery-key /dev/disk/by-partlabel/disk-main-root` prints one; keep it off the machine. The passphrase keeps working too.
+
+If the TPM ever refuses, after a dbx or firmware update or with Secure Boot off, the passphrase prompt is back. Answer it on the console or over SSH, then repeat step 3 with `--wipe-slot=tpm2` added.
 
 ## AI Notice
 
