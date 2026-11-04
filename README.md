@@ -34,14 +34,26 @@ See [nixos-anywhere's requirements](https://github.com/nix-community/nixos-anywh
 | `hetzner-cloud-aarch64` | Hetzner Cloud Arm servers                                                                                                                                                            |
 | `generic`               | Any other UEFI machine, x86_64 or aarch64. Set its disk in [`flake.nix`](flake.nix) first; the install generates its `hardware-configuration.nix`, which also sets the architecture. |
 
+## Choose a layout
+
+Three switches in [`disk-config.nix`](disk-config.nix) decide the layout. iDN mounts the same layout after the handoff, so each one has to match the iDN host:
+
+| Switch         | Turn it on when the iDN host includes            | What it adds                                                                                                                                            |
+| -------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `impermanence` | `impermanence`                                   | A `/persist` subvolume for what survives iDN resetting root on every boot                                                                               |
+| `luks`         | `luks` (desktops only; servers stay unencrypted) | LUKS2 around the root, opened as `/dev/mapper/crypted`. Every boot asks for the passphrase until iDN sets up the TPM                                    |
+| `data`         | `disko-btrfs-data`                               | A second disk with one btrfs partition (label `data`), inside LUKS2 with the same passphrase when `luks` is on. It stays unmounted until iDN takes over |
+
+Also check `swapSize` there: at least your RAM if you hibernate.
+
 ## What gets installed
 
-- **Disk:** GPT, with a 1G EFI system partition at `/boot` and a btrfs root (label `nixos`, zstd compression) on the rest, optionally inside LUKS2 (`luks`, desktops only, opened as `/dev/mapper/crypted`). The root has these subvolumes:
+- **Disk:** GPT, with a 1G EFI system partition at `/boot` and a btrfs root (label `nixos`, zstd compression) on the rest, inside LUKS2 with `luks` on. The root has these subvolumes:
   - `/root`, mounted at `/`
   - `/nix`
   - `/swap`, holding the swapfile
-  - `/persist`, only when `impermanence` is on. It only creates the subvolume; resetting root on boot is left to iDN.
-- **Data disk:** only when `data` is on. GPT with one btrfs partition (label `data`), inside LUKS2 with the same passphrase when `luks` is on. It stays unmounted until iDN takes over.
+  - `/persist`, with `impermanence` on. It only creates the subvolume; resetting root on boot is left to iDN.
+- **Data disk:** with `data` on, as above.
 - **Boot loader:** systemd-boot
 - **Console:** Hungarian keymap, also at the disk passphrase prompt.
 - **Access:** `steve` over SSH, using the keys in [`access.nix`](access.nix), with passwordless sudo for the `wheel` group. Root can't log in over SSH, and SSH password login is off, so keys are the only way in.
@@ -53,80 +65,95 @@ iDN takes over the machine afterwards, so its host configuration has to mount th
 ## Usage
 
 > [!WARNING]
-> Installing wipes the target disk completely: disko repartitions and formats all of it. The Hetzner configurations always wipe `/dev/sda`, so detach any Volumes first.
+> Installing wipes the target's disks completely: disko repartitions and formats the system disk, and the data disk with `data` on. The Hetzner configurations always wipe `/dev/sda`, so detach any Volumes first.
 
-### Before you run
+### 1. Prepare this repo
 
 1. Replace [`access.nix`](access.nix) with your own user and SSH keys. It's the only personal file here, and it's mine, so leaving it locks you out and lets me in.
 2. In [`flake.nix`](flake.nix), replace your configuration's `# per machine:` comments with the target's hostname (its host name in iDN) and, for `generic`, its disk (and its data disk, with `data` on). List the disks with `ls -l /dev/disk/by-id` on the target. The build fails until these are set. On Hetzner, also fill in the IPv6 line: an IPv6-only server is unreachable without it.
-3. Review `swapSize` (at least your RAM if you hibernate), `impermanence`, `luks` and `data` in [`disk-config.nix`](disk-config.nix). Turn `impermanence` and `luks` on exactly when the iDN host includes the aspect of the same name, and `data` when it includes `disko-btrfs-data`. `luks` is for desktops only; servers stay unencrypted.
+3. Set the switches and `swapSize` in [`disk-config.nix`](disk-config.nix), as in [Choose a layout](#choose-a-layout).
 
-### Install
+### 2. Get root SSH on the target
 
-Run **nixos-anywhere** from the command line as shown below, where:
+nixos-anywhere needs root over SSH. A running Linux works: it kexecs into its own installer from there. For a desktop, boot the [NixOS minimal ISO](https://nixos.org/download/#nixos-iso) instead. On its console, `sudo loadkeys hu`, then `sudo passwd root`. Then, from your machine:
 
-- `<configuration name>` is one of the [configurations](#configurations) above.
-- `<ip address>` is the IP address of the target machine.
+```sh
+ssh-copy-id root@<ip address>
+ssh root@<ip address> 'hostname; lsblk -dno NAME,SERIAL'
+```
+
+The second command lists the target's disks: check they're the ones you mean to wipe.
+
+### 3. Install
+
+Run **nixos-anywhere** with `<configuration name>` one of the [configurations](#configurations) above and `<ip address>` the target's address:
 
 ```
 nix run github:nix-community/nixos-anywhere -- --flake .#<configuration name> --target-host root@<ip address>
 ```
 
-On generic hardware, where you also need to generate the hardware configuration, add the flags for nixos-generate-config:
+On generic hardware, also generate the hardware configuration:
 
 ```
 nix run github:nix-community/nixos-anywhere -- --generate-hardware-config nixos-generate-config ./hardware-configuration.nix --flake .#generic --target-host root@<ip address>
 ```
 
-With `luks` on, also pass the passphrase. nixos-anywhere copies the file to the target, and disko only reads it while formatting:
+**Encrypted (`luks` on):** write the passphrase to a local file and add it to the command. nixos-anywhere copies it to the target, and disko only reads it while formatting, so it never lands on the installed system:
 
 ```
 --disk-encryption-keys /tmp/secret.key <local file holding the passphrase>
 ```
 
-Every boot then asks for it on the console, until iDN sets up the TPM.
+### 4. First boot
 
-### After install
+- **Unencrypted:** the target boots straight up.
+- **Encrypted:** every boot asks for the passphrase on the console until iDN sets up the TPM.
 
 The installed system has new SSH host keys, so your next `ssh` stops with a "REMOTE HOST IDENTIFICATION HAS CHANGED" warning. Remove the old key with `ssh-keygen -R <ip address>`, or add `--copy-host-keys` to the install command to keep the keys the target had before.
 
-Then hand the machine over to [iDN](https://github.com/istvnurbn/idn). Its host needs this install's hostname, disks, `swapSize`, `impermanence`, `luks` and `data` choices and, on `generic`, the contents of the generated `hardware-configuration.nix` (afterwards, restore the placeholder here with `git restore hardware-configuration.nix`). On the target, as `steve`:
+### 5. Hand over to iDN
 
-If the iDN host includes `luks-ssh-unlock` (the SSH fallback for encrypted desktops), first create the initrd's own host key: the rebuild copies it into the initrd, and fails without it. Without impermanence, use `/etc/secrets/initrd` instead:
+The iDN host needs this install's hostname, disks, `swapSize` and switches and, on `generic`, the contents of the generated `hardware-configuration.nix` (afterwards, restore the placeholder here with `git restore hardware-configuration.nix`). Then, on the target as `steve`, go through these steps in order, skipping the ones that don't match your layout:
 
-```sh
-sudo install -d -m 700 /persist/etc/secrets/initrd
-sudo ssh-keygen -t ed25519 -N "" -f /persist/etc/secrets/initrd/ssh_host_ed25519_key
-```
+1. **Encrypted, with the SSH fallback** (the iDN host includes `luks-ssh-unlock`): create the initrd's own host key. The rebuild copies it into the initrd, and fails without it. Without impermanence, use `/etc/secrets/initrd` instead:
 
-With `luks` and `data` both on, give the data disk the keyfile iDN opens it with (it asks for the passphrase once). Without impermanence, use `/etc/secrets` instead:
+   ```sh
+   sudo install -d -m 700 /persist/etc/secrets/initrd
+   sudo ssh-keygen -t ed25519 -N "" -f /persist/etc/secrets/initrd/ssh_host_ed25519_key
+   ```
 
-```sh
-sudo install -d -m 700 /persist/etc/secrets
-sudo dd if=/dev/urandom of=/persist/etc/secrets/data.key bs=64 count=1 status=none
-sudo chmod 400 /persist/etc/secrets/data.key
-sudo cryptsetup luksAddKey /dev/disk/by-partlabel/disk-data-data /persist/etc/secrets/data.key
-```
+2. **Encrypted, with a data disk:** give the data disk the keyfile iDN opens it with. It asks for the passphrase once. Without impermanence, use `/etc/secrets` instead:
 
-Then clone iDN and apply it:
+   ```sh
+   sudo install -d -m 700 /persist/etc/secrets
+   sudo dd if=/dev/urandom of=/persist/etc/secrets/data.key bs=64 count=1 status=none
+   sudo chmod 400 /persist/etc/secrets/data.key
+   sudo cryptsetup luksAddKey /dev/disk/by-partlabel/disk-data-data /persist/etc/secrets/data.key
+   ```
 
-```sh
-git clone https://github.com/istvnurbn/idn ~/idn
-nixos-rebuild boot --flake ~/idn#<hostname> --sudo
-```
+3. **Every layout:** clone iDN and apply it:
 
-With `impermanence` on, copy what iDN keeps in `/persist` before rebooting, or the first boot comes up with new SSH host keys, a new machine ID and no `~/idn`:
+   ```sh
+   git clone https://github.com/istvnurbn/idn ~/idn
+   nixos-rebuild boot --flake ~/idn#<hostname> --sudo
+   ```
 
-```sh
-sudo mkdir -p /persist/etc/ssh /persist/var/lib /persist/home
-sudo cp -a /etc/ssh/ssh_host_* /persist/etc/ssh/
-sudo cp -a /etc/machine-id /persist/etc/
-sudo cp -a /var/lib/nixos /persist/var/lib/
-sudo install -d -o "$USER" -g "$(id -gn)" -m 700 "/persist$HOME"
-cp -a ~/idn "/persist$HOME/"
-```
+4. **With impermanence:** copy what iDN keeps in `/persist` before rebooting, or the first boot comes up with new SSH host keys, a new machine ID and no `~/idn`:
 
-Then `sudo reboot`. Use `boot`, not `switch`, for this first apply: the network stack and, with impermanence, the mounts change, and those only apply cleanly on a fresh boot.
+   ```sh
+   sudo mkdir -p /persist/etc/ssh /persist/var/lib /persist/home
+   sudo cp -a /etc/ssh/ssh_host_* /persist/etc/ssh/
+   sudo cp -a /etc/machine-id /persist/etc/
+   sudo cp -a /var/lib/nixos /persist/var/lib/
+   sudo install -d -o "$USER" -g "$(id -gn)" -m 700 "/persist$HOME"
+   cp -a ~/idn "/persist$HOME/"
+   ```
+
+5. **Every layout:** `sudo reboot`. Use `boot`, not `switch`, for this first apply: the network stack and, with impermanence, the mounts change, and those only apply cleanly on a fresh boot.
+
+### 6. Encrypted: Secure Boot and the TPM
+
+These are iDN's job, after the handoff: follow the steps at the top of its `modules/system/secure-boot.nix`. Until the TPM is enrolled, every boot asks for the passphrase on the console. With `luks-ssh-unlock`, you can also answer it from the LAN with `ssh -p 2222 root@<ip address>`.
 
 ## AI Notice
 
