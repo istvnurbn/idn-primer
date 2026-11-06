@@ -7,34 +7,27 @@
     nixpkgs,
     disko,
     ...
-  }: {
-    # For x86_64 Hetzner cloud servers or QEMU guests
-    nixosConfigurations.hetzner-cloud = nixpkgs.lib.nixosSystem {
-      system = "x86_64-linux";
-      modules = [
-        disko.nixosModules.disko
-        ./configuration.nix
-        "${nixpkgs}/nixos/modules/profiles/qemu-guest.nix"
-        {disko.devices.disk.main.device = "/dev/sda";}
-        # per machine: {networking.hostName = "<name>";}
-        # per machine, for IPv6 (required on IPv6-only servers; Hetzner assigns it statically):
-        # {networking.useNetworkd = true; systemd.network.networks."10-uplink" = {matchConfig.Name = "en*"; networkConfig.DHCP = "ipv4"; address = ["<prefix>::1/64"]; routes = [{Gateway = "fe80::1";}];};}
-      ];
-    };
+  }: let
+    # For Hetzner cloud servers or QEMU guests; the two configurations differ only in `system`
+    hetzner = system:
+      nixpkgs.lib.nixosSystem {
+        inherit system;
+        modules = [
+          disko.nixosModules.disko
+          ./configuration.nix
+          "${nixpkgs}/nixos/modules/profiles/qemu-guest.nix"
+          {disko.devices.disk.main.device = "/dev/sda";}
+          # per machine: {networking.hostName = "<name>";}
+          # per machine, for IPv6 (required on IPv6-only servers; Hetzner assigns it statically):
+          # {networking.useNetworkd = true; systemd.network.networks."10-uplink" = {matchConfig.Name = "en*"; networkConfig.DHCP = "ipv4"; address = ["<prefix>::1/64"]; routes = [{Gateway = "fe80::1";}];};}
+        ];
+      };
+  in {
+    # x86_64 Hetzner cloud servers
+    nixosConfigurations.hetzner-cloud = hetzner "x86_64-linux";
 
-    # For aarch64 Hetzner cloud servers or QEMU guests
-    nixosConfigurations.hetzner-cloud-aarch64 = nixpkgs.lib.nixosSystem {
-      system = "aarch64-linux";
-      modules = [
-        disko.nixosModules.disko
-        ./configuration.nix
-        "${nixpkgs}/nixos/modules/profiles/qemu-guest.nix"
-        {disko.devices.disk.main.device = "/dev/sda";}
-        # per machine: {networking.hostName = "<name>";}
-        # per machine, for IPv6 (required on IPv6-only servers; Hetzner assigns it statically):
-        # {networking.useNetworkd = true; systemd.network.networks."10-uplink" = {matchConfig.Name = "en*"; networkConfig.DHCP = "ipv4"; address = ["<prefix>::1/64"]; routes = [{Gateway = "fe80::1";}];};}
-      ];
-    };
+    # aarch64 Hetzner cloud servers
+    nixosConfigurations.hetzner-cloud-aarch64 = hetzner "aarch64-linux";
 
     # Use this for all other targets.
     nixosConfigurations.generic = nixpkgs.lib.nixosSystem {
