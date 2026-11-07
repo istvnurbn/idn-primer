@@ -2,13 +2,17 @@
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
   inputs.disko.url = "github:nix-community/disko";
   inputs.disko.inputs.nixpkgs.follows = "nixpkgs";
+  inputs.treefmt-nix.url = "github:numtide/treefmt-nix";
+  inputs.treefmt-nix.inputs.nixpkgs.follows = "nixpkgs";
 
   outputs = {
+    self,
     nixpkgs,
     disko,
+    treefmt-nix,
     ...
   }: let
-    # For Hetzner cloud servers or QEMU guests; the two configurations differ only in `system`
+    # For Hetzner cloud servers or QEMU guests; the two configurations differ only in system
     hetzner = system:
       nixpkgs.lib.nixosSystem {
         inherit system;
@@ -22,7 +26,16 @@
           # {networking.useNetworkd = true; systemd.network.networks."10-uplink" = {matchConfig.Name = "en*"; networkConfig.DHCP = "ipv4"; address = ["<prefix>::1/64"]; routes = [{Gateway = "fe80::1";}];};}
         ];
       };
+    # nix fmt and the formatting check, on every system the primer is run from
+    forAllSystems = nixpkgs.lib.genAttrs ["x86_64-linux" "aarch64-linux" "aarch64-darwin"];
+    treefmt = forAllSystems (system:
+      treefmt-nix.lib.evalModule nixpkgs.legacyPackages.${system} {
+        projectRootFile = "flake.nix";
+        programs.alejandra.enable = true;
+      });
   in {
+    formatter = forAllSystems (system: treefmt.${system}.config.build.wrapper);
+    checks = forAllSystems (system: {formatting = treefmt.${system}.config.build.check self;});
     # x86_64 Hetzner cloud servers
     nixosConfigurations.hetzner-cloud = hetzner "x86_64-linux";
 
