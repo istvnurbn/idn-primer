@@ -53,6 +53,8 @@
         # per machine: {disko.devices.disk.main.device = "/dev/disk/by-id/<id>";}
         # per machine, with data = true: {disko.devices.disk.data.device = "/dev/disk/by-id/<id>";}
         # per machine: {networking.hostName = "<name>";}
+        # per machine, if its iDN host uses Nyx (vermilion: its kernel is only in Nyx's cache, so iDN's first build would compile it):
+        # {nix.settings = {substituters = ["https://nyx-cache.chaotic.cx/"]; trusted-public-keys = ["nyx-cache.chaotic.cx:dJxTrgMC3V3cFfyIiBQDQorG6k1LsqurH/srpMSq7qk="];};}
       ];
     };
   };
