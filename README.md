@@ -113,7 +113,21 @@ The installed system has new SSH host keys, so your next `ssh` stops with a "REM
 
 ### 5. Hand over to iDN
 
-The iDN host needs this install's hostname, disks, `swapSize` and switches and, on `generic`, the contents of the generated `hardware-configuration.nix` (afterwards, restore the placeholder here with `git restore hardware-configuration.nix`). Then, on the target as `steve`, go through these steps in order, skipping the ones that don't match your layout:
+The iDN host needs this install's hostname, disks, `swapSize` and switches and, on `generic`, the contents of the generated `hardware-configuration.nix` (afterwards, restore the placeholder here with `git restore hardware-configuration.nix`).
+
+If the iDN host includes `sops`, iDN's secrets have to be encrypted for this install's host key too. Otherwise the first boot can't decrypt the user's password, so console and desktop logins fail (SSH keys still work). In your iDN checkout, on a machine that can already decrypt them, add the key this prints to `.sops.yaml`: an entry under `keys`, with its anchor in the creation rule. A reinstall replaces the host's old entry.
+
+```sh
+ssh steve@<ip address> cat /etc/ssh/ssh_host_ed25519_key.pub
+```
+
+Then re-encrypt, and commit and push before step 3 clones iDN:
+
+```sh
+sops updatekeys secrets/shared.yaml
+```
+
+Now, on the target as `steve`, go through these steps in order, skipping the ones that don't match your layout:
 
 1. **Encrypted, with the SSH fallback** (the iDN host includes `luks-ssh-unlock`): create the initrd's own host key. The rebuild copies it into the initrd, and fails without it. Without impermanence, use `/etc/secrets/initrd` instead:
 
