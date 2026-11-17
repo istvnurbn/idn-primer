@@ -127,6 +127,8 @@ Then re-encrypt, and commit and push before step 3 clones iDN:
 sops updatekeys secrets/shared.yaml
 ```
 
+If no machine at hand can decrypt them, follow iDN's [Installing a host when no machine can decrypt](https://github.com/istvnurbn/idn/blob/main/secrets/README.md#installing-a-host-when-no-machine-can-decrypt) instead.
+
 Now, on the target as `steve`, go through these steps in order, skipping the ones that don't match your layout:
 
 1. **Encrypted, with the SSH fallback** (the iDN host includes `luks-ssh-unlock`): create the initrd's own host key. The rebuild copies it into the initrd, and fails without it. Without impermanence, use `/etc/secrets/initrd` instead:
