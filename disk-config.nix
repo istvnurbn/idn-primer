@@ -11,11 +11,11 @@
   # Must be true exactly when the iDN host includes the `impermanence` aspect.
   impermanence = false;
 
-  # Encrypt the root with LUKS2? Desktops only: servers stay unencrypted.
+  # Encrypt the root with LUKS2?
   # Must be true exactly when the iDN host includes the `luks` aspect.
   # Give nixos-anywhere the passphrase with
   #   --disk-encryption-keys /tmp/secret.key <local file holding it>
-  # Every boot asks for it on the console until iDN sets up the TPM.
+  # Until iDN takes over, every boot asks for it on the console.
   luks = false;
 
   # Also format a second disk, like iDN's disko-btrfs-data? Set its device in

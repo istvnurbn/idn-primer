@@ -41,7 +41,7 @@ Three switches in [`disk-config.nix`](disk-config.nix) decide the layout. iDN mo
 | Switch         | Turn it on when the iDN host includes            | What it adds                                                                                                                                            |
 | -------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `impermanence` | `impermanence`                                   | A `/persist` subvolume for what survives iDN resetting root on every boot                                                                               |
-| `luks`         | `luks` (desktops only; servers stay unencrypted) | LUKS2 around the root, opened as `/dev/mapper/crypted`. Every boot asks for the passphrase until iDN sets up the TPM                                    |
+| `luks`         | `luks`                                           | LUKS2 around the root, opened as `/dev/mapper/crypted`. Every boot asks for the passphrase (see [First boot](#4-first-boot))                            |
 | `data`         | `disko-btrfs-data`                               | A second disk with one btrfs partition (label `data`), inside LUKS2 with the same passphrase when `luks` is on. It stays unmounted until iDN takes over |
 
 Also check `swapSize` there: at least your RAM if you hibernate.
@@ -107,7 +107,7 @@ nix run github:nix-community/nixos-anywhere -- --generate-hardware-config nixos-
 ### 4. First boot
 
 - **Unencrypted:** the target boots straight up.
-- **Encrypted:** every boot asks for the passphrase on the console until iDN sets up the TPM.
+- **Encrypted:** every boot asks for the passphrase on the console. On Hetzner Cloud, that's the server's console in the Cloud Console. Once iDN takes over, a host with `luks-ssh-unlock` also takes it over SSH: `ssh -p 2222 root@<ip address>`. On Hetzner Cloud, use the IPv4 address, because the initrd doesn't set up the static IPv6. On a desktop, the TPM can answer it instead (section 6).
 
 The installed system has new SSH host keys, so your next `ssh` stops with a "REMOTE HOST IDENTIFICATION HAS CHANGED" warning. Remove the old key with `ssh-keygen -R <ip address>`, or add `--copy-host-keys` to the install command to keep the keys the target had before.
 
@@ -131,7 +131,7 @@ If no machine at hand can decrypt them, follow iDN's [Installing a host when no 
 
 Now, on the target as `steve`, go through these steps in order, skipping the ones that don't match your layout:
 
-1. **Encrypted, with the SSH fallback** (the iDN host includes `luks-ssh-unlock`): create the initrd's own host key. The rebuild copies it into the initrd, and fails without it. Without impermanence, use `/etc/secrets/initrd` instead:
+1. **Encrypted, with SSH unlock** (the iDN host includes `luks-ssh-unlock`): create the initrd's own host key. The rebuild copies it into the initrd, and fails without it. Without impermanence, use `/etc/secrets/initrd` instead:
 
    ```sh
    sudo install -d -m 700 /persist/etc/secrets/initrd
